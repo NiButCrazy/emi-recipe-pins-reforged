@@ -15,6 +15,10 @@ public final class FavoriteOrganizer {
     }
 
     public static boolean isRecipeFavorite(EmiIngredient ingredient) {
+        // 合成模式下的 synthetic 条目由 EMI 自己生成，不是用户 pin 的配方
+        if (ingredient instanceof EmiFavorite.Synthetic) {
+            return false;
+        }
         return ingredient instanceof EmiFavorite favorite && favorite.getRecipe() != null;
     }
 
@@ -47,7 +51,7 @@ public final class FavoriteOrganizer {
     }
 
     public static void moveRecipeFavoriteTo(EmiIngredient ingredient, int recipeIndex) {
-        if (!(ingredient instanceof EmiFavorite favorite) || favorite.getRecipe() == null) {
+        if (!(ingredient instanceof EmiFavorite favorite) || !isRecipeFavorite(favorite)) {
             return;
         }
 

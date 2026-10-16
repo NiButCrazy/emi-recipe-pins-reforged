@@ -16,6 +16,7 @@ import dev.emi.emi.config.EmiConfig;
 import dev.emi.emi.config.SidebarType;
 import dev.emi.emi.runtime.EmiDrawContext;
 import dev.emi.emi.runtime.EmiFavorite;
+import dev.emi.emi.runtime.EmiFavorites;
 import dev.emi.emi.screen.EmiScreenManager;
 import dev.kdevy.emirecipepins.RecipePinsConfig;
 import net.minecraft.client.Minecraft;
@@ -62,7 +63,7 @@ public final class PinnedRecipeRenderer {
         int y = space.ty;
         int iconColumn = 0;
         int recipeIndex = 0;
-        int maxVisibleRecipes = RecipePinsConfig.getMaxVisibleRecipes();
+        int maxVisibleRecipes = getMaxVisibleRecipes();
 
         context.enableDepthTest();
         context.resetColor();
@@ -147,8 +148,8 @@ public final class PinnedRecipeRenderer {
 
     public static void wrapDraggedRecipe() {
         if (EmiScreenManager.draggedStack instanceof EmiFavorite favorite
-                && favorite.getRecipe() != null
-                && !(favorite instanceof RecipeCardFavorite)) {
+                && !(favorite instanceof RecipeCardFavorite)
+                && FavoriteOrganizer.isRecipeFavorite(favorite)) {
             EmiScreenManager.draggedStack = new RecipeCardFavorite(favorite);
         }
     }
@@ -248,10 +249,27 @@ public final class PinnedRecipeRenderer {
     }
 
     private static EmiRecipe getFavoriteRecipe(EmiIngredient ingredient) {
+        // 合成模式的 synthetic 条目（合成步骤 / 材料统计）必须按 EMI 原版样式渲染，
+        // 它们不是用户 pin 的配方，也不该占用卡片名额
+        if (ingredient instanceof EmiFavorite.Synthetic) {
+            return null;
+        }
         if (ingredient instanceof EmiFavorite favorite) {
             return favorite.getRecipe();
         }
         return null;
+    }
+
+    /**
+     * EMI 合成模式（Crafting mode）会把合成步骤与材料统计作为 synthetic favorites 追加到
+     * 收藏栏末尾，它们排在 pin 卡片之后，卡片展开时会把这些统计挤出可视区。
+     * 因此只要存在 synthetic 条目，就把卡片全部收成图标，让统计保持 EMI 原生渲染。
+     */
+    private static int getMaxVisibleRecipes() {
+        if (!EmiFavorites.syntheticFavorites.isEmpty()) {
+            return 0;
+        }
+        return RecipePinsConfig.getMaxVisibleRecipes();
     }
 
     private static float getRecipeScale(EmiRecipe recipe, int maxWidth) {
