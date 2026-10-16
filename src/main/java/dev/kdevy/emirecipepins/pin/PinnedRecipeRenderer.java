@@ -18,6 +18,7 @@ import dev.emi.emi.runtime.EmiDrawContext;
 import dev.emi.emi.runtime.EmiFavorite;
 import dev.emi.emi.runtime.EmiFavorites;
 import dev.emi.emi.screen.EmiScreenManager;
+import dev.kdevy.emirecipepins.PageSizeAccess;
 import dev.kdevy.emirecipepins.RecipePinsConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -35,8 +36,12 @@ public final class PinnedRecipeRenderer {
     private static final float DRAG_ANIMATION_SPEED = 0.36f;
     private static final float SNAP_ANIMATION_SPEED = 0.42f;
     private static final Map<EmiScreenManager.ScreenSpace, List<Hit>> HITS = new IdentityHashMap<>();
-    /** 收藏栏第一页实际消费掉的条目数，用于补偿展开卡片造成的分页错位 */
+    /** 收藏栏第一页实际消费掉的条目数，也就是折算后的每页条目容量 */
     private static final Map<EmiScreenManager.ScreenSpace, Integer> FIRST_PAGE_ENTRIES = new IdentityHashMap<>();
+    /** ScreenSpace 原始的每页容量（EMI 按格子数算出来的），折算时以它为基准 */
+    private static final Map<EmiScreenManager.ScreenSpace, Integer> BASE_PAGE_SIZE = new IdentityHashMap<>();
+    /** 上次折算时收藏栏里的条目数，用来发现列表变化并让折算值失效 */
+    private static final Map<EmiScreenManager.ScreenSpace, Integer> LAST_STACK_COUNT = new IdentityHashMap<>();
     private static EmiRecipe animatedDragRecipe;
     private static DragAnimation dragAnimation;
 
@@ -48,6 +53,27 @@ public final class PinnedRecipeRenderer {
         if (!FavoriteOrganizer.isRecipeFavorite(EmiScreenManager.draggedStack)) {
             resetDragAnimation();
         }
+    }
+
+    /**
+     * 每帧渲染收藏栏之前调用。收藏列表一旦变化（取消 pin、增删收藏），上一次折算出来的
+     * 容量就不再成立，而折算值只会在渲染第一页时更新 —— 如果玩家正停在第二页，或者 pin
+     * 已经全部取消、渲染器不再接管，旧值就会留在 ScreenSpace 上，让分页停留在已经不存在的
+     * 第二页。这里先还原成 EMI 算出的原始容量，新的折算值等第一页再次渲染时重新计算。
+     */
+    public static void refreshPageSize(EmiScreenManager.ScreenSpace space) {
+        if (space.getType() != SidebarType.FAVORITES) {
+            return;
+        }
+        int base = BASE_PAGE_SIZE.computeIfAbsent(space, s -> s.pageSize);
+        List<? extends EmiIngredient> stacks = space.getStacks();
+        Integer seen = LAST_STACK_COUNT.get(space);
+        if (seen != null && seen == stacks.size()) {
+            return;
+        }
+        LAST_STACK_COUNT.put(space, stacks.size());
+        FIRST_PAGE_ENTRIES.remove(space);
+        setPageSize(space, base);
     }
 
     public static boolean renderFavorites(EmiScreenManager.ScreenSpace space, EmiDrawContext context, int mouseX,
@@ -70,7 +96,7 @@ public final class PinnedRecipeRenderer {
         context.enableDepthTest();
         context.resetColor();
 
-        int start = getPageStart(space, startIndex);
+        int start = Math.max(0, startIndex);
         int processed = 0;
 
         for (int i = start; i < stacks.size() && y < bottom; i++) {
@@ -120,6 +146,7 @@ public final class PinnedRecipeRenderer {
 
         if (startIndex == 0) {
             FIRST_PAGE_ENTRIES.put(space, processed);
+            applyPageSize(space);
         }
 
         HITS.put(space, hits);
@@ -127,17 +154,23 @@ public final class PinnedRecipeRenderer {
     }
 
     /**
-     * EMI 按条目数翻页（startIndex = pageSize * page），而展开的卡片要占好几格，
-     * 于是第一页实际消费的条目数少于 pageSize，中间那些条目会被后续页永久跳过。
-     * 这里把第一页少消费的条目补回来，让翻页覆盖到每一个条目。
+     * EMI 拿 pageSize 同时当"每页多少个格子"和"每页多少个条目"用。原版两者等价，
+     * 但展开的卡片占好几格却只算一个条目，于是第一页被卡片吃掉的格子既显示不出东西，
+     * 也不会让 EMI 给出第二页（它只在条目数超过 pageSize 时才分页），被挤掉的收藏就既
+     * 看不到也翻不到。这里把 pageSize 折算成第一页真正消费掉的条目数，分页判断和翻页
+     * 步长就都对齐真实容量了。
      */
-    private static int getPageStart(EmiScreenManager.ScreenSpace space, int startIndex) {
-        if (startIndex <= 0 || space.pageSize <= 0) {
-            return Math.max(0, startIndex);
+    private static void applyPageSize(EmiScreenManager.ScreenSpace space) {
+        int base = BASE_PAGE_SIZE.getOrDefault(space, space.pageSize);
+        Integer firstPageEntries = FIRST_PAGE_ENTRIES.get(space);
+        int effective = firstPageEntries == null ? base : Math.max(1, Math.min(base, firstPageEntries));
+        setPageSize(space, effective);
+    }
+
+    private static void setPageSize(EmiScreenManager.ScreenSpace space, int size) {
+        if (space.pageSize != size) {
+            ((PageSizeAccess) space).emiRecipePins$setPageSize(size);
         }
-        int firstPageEntries = FIRST_PAGE_ENTRIES.getOrDefault(space, space.pageSize);
-        int wasted = Math.max(0, space.pageSize - firstPageEntries);
-        return Math.max(0, startIndex - wasted);
     }
 
     public static EmiStackInteraction getHoveredStack(int mouseX, int mouseY) {
