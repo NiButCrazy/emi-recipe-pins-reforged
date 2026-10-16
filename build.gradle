@@ -10,7 +10,9 @@ version = mod_version
 group = mod_group_id
 
 base {
-    archivesName = mod_id
+    // jar 文件名跟随模组显示名（EMI Recipe Pins Reforged -> emi_recipe_pins_reforged），
+    // mod id 仍然是 emi_recipe_pins，配置路径与 mixin 配置都不受影响
+    archivesName = mod_name.toLowerCase(Locale.ROOT).replace(' ', '_')
 }
 
 // Forge 1.20.1 requires Java 17

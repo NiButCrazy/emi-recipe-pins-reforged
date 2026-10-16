@@ -25,4 +25,4 @@ Client addon for EMI that renders recipe favorites as REI-style pinned recipe ca
 .\gradlew.bat --no-daemon build
 ```
 
-The built jar is written to `build/libs/emi_recipe_pins-1.0.0-1.20.1.jar`.
+The built jar is written to `build/libs/emi_recipe_pins_reforged-1.0.0-1.20.1.jar`.
