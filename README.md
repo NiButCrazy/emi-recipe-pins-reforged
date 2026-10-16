@@ -1,6 +1,6 @@
-# EMI Recipe Pins
+# EMI Recipe Pins Reforged
 
-*Clanker-assisted backport to Forge 1.20.1.*
+*Clanker-assisted backport to Forge 1.20.1, reforged with crafting-tree and Favorites pagination fixes.*
 
 Client addon for EMI that renders recipe favorites as REI-style pinned recipe cards.
 
