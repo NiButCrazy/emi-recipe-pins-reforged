@@ -10,6 +10,8 @@ authors="${mod_authors}"
 description='''
 为 EMI 收藏夹添加 REI 风格的固定配方卡片。
 由 cat4blep 的 1.21 版移植到 Forge 1.20.1。
+
+经过魔改后不再影响配方合成树。
 '''
 
 [[mixins]]

@@ -35,6 +35,8 @@ public final class PinnedRecipeRenderer {
     private static final float DRAG_ANIMATION_SPEED = 0.36f;
     private static final float SNAP_ANIMATION_SPEED = 0.42f;
     private static final Map<EmiScreenManager.ScreenSpace, List<Hit>> HITS = new IdentityHashMap<>();
+    /** 收藏栏第一页实际消费掉的条目数，用于补偿展开卡片造成的分页错位 */
+    private static final Map<EmiScreenManager.ScreenSpace, Integer> FIRST_PAGE_ENTRIES = new IdentityHashMap<>();
     private static EmiRecipe animatedDragRecipe;
     private static DragAnimation dragAnimation;
 
@@ -68,66 +70,74 @@ public final class PinnedRecipeRenderer {
         context.enableDepthTest();
         context.resetColor();
 
-        for (int i = Math.max(0, startIndex); i < stacks.size() && y < bottom; i++) {
+        int start = getPageStart(space, startIndex);
+        int processed = 0;
+
+        for (int i = start; i < stacks.size() && y < bottom; i++) {
+            processed++;
             EmiIngredient ingredient = stacks.get(i);
             if (FavoriteOrganizer.isSameRecipeFavorite(ingredient, EmiScreenManager.draggedStack)) {
                 continue;
             }
             EmiRecipe recipe = getFavoriteRecipe(ingredient);
-            if (recipe != null) {
-                if (recipeIndex < maxVisibleRecipes) {
-                    if (iconColumn != 0) {
-                        y += ENTRY_SIZE;
-                        iconColumn = 0;
-                    }
-
-                    float scale = getRecipeScale(recipe, maxWidth);
-                    int cardHeight = getRecipeCardHeight(recipe, scale);
-                    if (y + cardHeight > bottom) {
-                        break;
-                    }
-
-                    renderRecipeCard(space, ingredient, recipe, context, x, y, maxWidth, cardHeight, scale, mouseX, mouseY, delta, hits, recipeIndex);
-                    y += cardHeight + RECIPE_GAP;
-                } else {
-                    if (iconColumn >= Math.max(1, space.tw)) {
-                        y += ENTRY_SIZE;
-                        iconColumn = 0;
-                    }
-                    if (y + ENTRY_SIZE > bottom) {
-                        break;
-                    }
-                    int iconX = space.rtl ? x + (space.tw - 1 - iconColumn) * ENTRY_SIZE : x + iconColumn * ENTRY_SIZE;
-                    Bounds bounds = new Bounds(iconX, y, ENTRY_SIZE, ENTRY_SIZE);
-                    if (bounds.contains(mouseX, mouseY) && EmiConfig.showHoverOverlay) {
-                        EmiRenderHelper.drawSlotHightlight(context, iconX, y, ENTRY_SIZE, ENTRY_SIZE, 0);
-                    }
-                    ingredient.render(context.raw(), iconX + 1, y + 1, delta);
-                    hits.add(new RecipeIconHit(space, bounds, ingredient, recipe, recipeIndex));
-                    iconColumn++;
-                }
-                recipeIndex++;
-            } else {
-                if (iconColumn >= Math.max(1, space.tw)) {
+            int index = recipe == null ? -1 : recipeIndex++;
+            if (index >= 0 && index < maxVisibleRecipes) {
+                if (iconColumn != 0) {
                     y += ENTRY_SIZE;
                     iconColumn = 0;
                 }
-                if (y + ENTRY_SIZE > bottom) {
-                    break;
+
+                float scale = getRecipeScale(recipe, maxWidth);
+                int cardHeight = getRecipeCardHeight(recipe, scale);
+                if (y + cardHeight <= bottom) {
+                    renderRecipeCard(space, ingredient, recipe, context, x, y, maxWidth, cardHeight, scale, mouseX, mouseY, delta, hits, index);
+                    y += cardHeight + RECIPE_GAP;
+                    continue;
                 }
-                int iconX = space.rtl ? x + (space.tw - 1 - iconColumn) * ENTRY_SIZE : x + iconColumn * ENTRY_SIZE;
-                Bounds bounds = new Bounds(iconX, y, ENTRY_SIZE, ENTRY_SIZE);
-                if (bounds.contains(mouseX, mouseY) && EmiConfig.showHoverOverlay) {
-                    EmiRenderHelper.drawSlotHightlight(context, iconX, y, ENTRY_SIZE, ENTRY_SIZE, 0);
-                }
-                ingredient.render(context.raw(), iconX + 1, y + 1, delta);
-                hits.add(new IngredientHit(space, bounds, ingredient, getFavoriteRecipe(ingredient)));
-                iconColumn++;
+                // 卡片放不下就退回图标形式：EMI 按条目数翻页，这里中断会让后面的条目被永久跳过
             }
+
+            if (iconColumn >= Math.max(1, space.tw)) {
+                y += ENTRY_SIZE;
+                iconColumn = 0;
+            }
+            if (y + ENTRY_SIZE > bottom) {
+                break;
+            }
+            int iconX = space.rtl ? x + (space.tw - 1 - iconColumn) * ENTRY_SIZE : x + iconColumn * ENTRY_SIZE;
+            Bounds bounds = new Bounds(iconX, y, ENTRY_SIZE, ENTRY_SIZE);
+            if (bounds.contains(mouseX, mouseY) && EmiConfig.showHoverOverlay) {
+                EmiRenderHelper.drawSlotHightlight(context, iconX, y, ENTRY_SIZE, ENTRY_SIZE, 0);
+            }
+            ingredient.render(context.raw(), iconX + 1, y + 1, delta);
+            if (recipe != null) {
+                hits.add(new RecipeIconHit(space, bounds, ingredient, recipe, index));
+            } else {
+                hits.add(new IngredientHit(space, bounds, ingredient, null));
+            }
+            iconColumn++;
+        }
+
+        if (startIndex == 0) {
+            FIRST_PAGE_ENTRIES.put(space, processed);
         }
 
         HITS.put(space, hits);
         return true;
+    }
+
+    /**
+     * EMI 按条目数翻页（startIndex = pageSize * page），而展开的卡片要占好几格，
+     * 于是第一页实际消费的条目数少于 pageSize，中间那些条目会被后续页永久跳过。
+     * 这里把第一页少消费的条目补回来，让翻页覆盖到每一个条目。
+     */
+    private static int getPageStart(EmiScreenManager.ScreenSpace space, int startIndex) {
+        if (startIndex <= 0 || space.pageSize <= 0) {
+            return Math.max(0, startIndex);
+        }
+        int firstPageEntries = FIRST_PAGE_ENTRIES.getOrDefault(space, space.pageSize);
+        int wasted = Math.max(0, space.pageSize - firstPageEntries);
+        return Math.max(0, startIndex - wasted);
     }
 
     public static EmiStackInteraction getHoveredStack(int mouseX, int mouseY) {
