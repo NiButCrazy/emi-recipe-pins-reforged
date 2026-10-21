@@ -2,6 +2,7 @@ package dev.kdevy.emirecipepins.mixin;
 
 import dev.emi.emi.api.stack.EmiStackInteraction;
 import dev.emi.emi.runtime.EmiDrawContext;
+import dev.emi.emi.screen.EmiScreenBase;
 import dev.emi.emi.screen.EmiScreenManager;
 import dev.kdevy.emirecipepins.pin.PinnedRecipeRenderer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -20,6 +21,18 @@ public abstract class EmiScreenManagerMixin {
     @Inject(method = "drawForeground", at = @At("TAIL"), remap = false)
     private static void emiRecipePins$drawPinnedTooltip(EmiDrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         PinnedRecipeRenderer.renderTooltip(context, mouseX, mouseY);
+    }
+
+    /**
+     * 卡片区域的 tooltip 由 PinnedRecipeRenderer 负责，它会按「按住显示配方键才预览配方」的
+     * 规则重建内容；这里取消 EMI 原生绘制，避免 EmiFavorite 无条件附带配方预览。
+     */
+    @Inject(method = "renderCurrentTooltip", at = @At("HEAD"), cancellable = true, remap = false)
+    private static void emiRecipePins$suppressPinnedTooltip(EmiDrawContext context, int mouseX, int mouseY, float delta,
+            EmiScreenBase base, CallbackInfo ci) {
+        if (PinnedRecipeRenderer.hasHitAt(mouseX, mouseY)) {
+            ci.cancel();
+        }
     }
 
     @Inject(method = "getHoveredStack(IIZZ)Ldev/emi/emi/api/stack/EmiStackInteraction;", at = @At("HEAD"), cancellable = true, remap = false)

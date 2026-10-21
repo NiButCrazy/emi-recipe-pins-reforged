@@ -2,6 +2,7 @@ package dev.kdevy.emirecipepins.pin;
 
 import com.google.common.collect.Lists;
 import dev.emi.emi.EmiRenderHelper;
+import dev.emi.emi.EmiUtil;
 import dev.emi.emi.api.recipe.EmiRecipe;
 import dev.emi.emi.api.stack.EmiIngredient;
 import dev.emi.emi.api.stack.EmiStack;
@@ -18,10 +19,11 @@ import dev.emi.emi.runtime.EmiDrawContext;
 import dev.emi.emi.runtime.EmiFavorite;
 import dev.emi.emi.runtime.EmiFavorites;
 import dev.emi.emi.screen.EmiScreenManager;
-import dev.kdevy.emirecipepins.PageSizeAccess;
+import dev.emi.emi.screen.tooltip.RecipeTooltipComponent;
 import dev.kdevy.emirecipepins.RecipePinsConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
 
 import java.util.ArrayList;
@@ -36,12 +38,14 @@ public final class PinnedRecipeRenderer {
     private static final float DRAG_ANIMATION_SPEED = 0.36f;
     private static final float SNAP_ANIMATION_SPEED = 0.42f;
     private static final Map<EmiScreenManager.ScreenSpace, List<Hit>> HITS = new IdentityHashMap<>();
-    /** 收藏栏第一页实际消费掉的条目数，也就是折算后的每页条目容量 */
+    /**
+     * 收藏栏第一页实际渲染了多少个条目。展开的卡片会占掉好几行，所以第一页能消费的条目
+     * 通常少于 EMI 按格子数算出的 pageSize；后续页没有卡片，仍然是 pageSize 个图标。
+     */
     private static final Map<EmiScreenManager.ScreenSpace, Integer> FIRST_PAGE_ENTRIES = new IdentityHashMap<>();
-    /** ScreenSpace 原始的每页容量（EMI 按格子数算出来的），折算时以它为基准 */
-    private static final Map<EmiScreenManager.ScreenSpace, Integer> BASE_PAGE_SIZE = new IdentityHashMap<>();
-    /** 上次折算时收藏栏里的条目数，用来发现列表变化并让折算值失效 */
-    private static final Map<EmiScreenManager.ScreenSpace, Integer> LAST_STACK_COUNT = new IdentityHashMap<>();
+    /** 上次看到的第一页布局（固定卡片数量 / 是否处于合成模式），用来判断实测容量是否过期 */
+    private static final Map<EmiScreenManager.ScreenSpace, Integer> LAST_RECIPE_COUNT = new IdentityHashMap<>();
+    private static final Map<EmiScreenManager.ScreenSpace, Boolean> LAST_SYNTHETIC = new IdentityHashMap<>();
     private static EmiRecipe animatedDragRecipe;
     private static DragAnimation dragAnimation;
 
@@ -56,24 +60,73 @@ public final class PinnedRecipeRenderer {
     }
 
     /**
-     * 每帧渲染收藏栏之前调用。收藏列表一旦变化（取消 pin、增删收藏），上一次折算出来的
-     * 容量就不再成立，而折算值只会在渲染第一页时更新 —— 如果玩家正停在第二页，或者 pin
-     * 已经全部取消、渲染器不再接管，旧值就会留在 ScreenSpace 上，让分页停留在已经不存在的
-     * 第二页。这里先还原成 EMI 算出的原始容量，新的折算值等第一页再次渲染时重新计算。
+     * 每帧渲染收藏栏之前调用（由 SidebarPanelMixin 在计算页码、分页按钮和 startIndex 之前执行）。
+     * 只有第一页布局变了（固定卡片增删、进出合成模式）才丢弃实测容量：普通收藏的增删不会
+     * 改变布局，继续沿用实测值，否则删除物品时容量会在实测值和 EMI 原始值之间切换一帧，
+     * 分页就会闪烁。布局变化时丢弃实测值，也能让取消 pin 后不再残留不存在的分页。
      */
-    public static void refreshPageSize(EmiScreenManager.ScreenSpace space) {
-        if (space.getType() != SidebarType.FAVORITES) {
+    public static void invalidateOnLayoutChange(EmiScreenManager.ScreenSpace space) {
+        if (space == null || space.getType() != SidebarType.FAVORITES) {
             return;
         }
-        int base = BASE_PAGE_SIZE.computeIfAbsent(space, s -> s.pageSize);
-        List<? extends EmiIngredient> stacks = space.getStacks();
-        Integer seen = LAST_STACK_COUNT.get(space);
-        if (seen != null && seen == stacks.size()) {
-            return;
+        int recipeCount = FavoriteOrganizer.getRecipeCount();
+        boolean synthetic = !EmiFavorites.syntheticFavorites.isEmpty();
+        Integer seenRecipes = LAST_RECIPE_COUNT.put(space, recipeCount);
+        Boolean seenSynthetic = LAST_SYNTHETIC.put(space, synthetic);
+        if (seenRecipes != null && (seenRecipes != recipeCount || seenSynthetic != synthetic)) {
+            FIRST_PAGE_ENTRIES.remove(space);
         }
-        LAST_STACK_COUNT.put(space, stacks.size());
-        FIRST_PAGE_ENTRIES.remove(space);
-        setPageSize(space, base);
+    }
+
+    /**
+     * 分页模型：第一页按实际渲染的条目数切分，后续页按 EMI 原始的每页格子数切分。
+     * 第一页展开的卡片占掉了若干行，如果强行用同一个 pageSize 做等长分页，要么后续页
+     * 只能塞下很少的图标（页数暴涨），要么页与页的条目范围重叠（每页内容不规律）。
+     */
+    public static int getPageCount(EmiScreenManager.ScreenSpace space, int fallback) {
+        if (space == null || space.getType() != SidebarType.FAVORITES) {
+            return fallback;
+        }
+        int base = space.pageSize;
+        if (base <= 0) {
+            return fallback;
+        }
+        int size = space.getStacks().size();
+        int first = FIRST_PAGE_ENTRIES.getOrDefault(space, base);
+        if (size <= first) {
+            return 1;
+        }
+        return 2 + (size - first - 1) / base;
+    }
+
+    /** 把 EMI 按 {@code pageSize * page} 算出的 startIndex 映射到不等长分页的起始条目 */
+    public static int getPageStart(EmiScreenManager.ScreenSpace space, int startIndex) {
+        if (space == null || space.getType() != SidebarType.FAVORITES) {
+            return startIndex;
+        }
+        int base = space.pageSize;
+        if (base <= 0) {
+            return startIndex;
+        }
+        int page = startIndex / base;
+        if (page <= 0) {
+            return 0;
+        }
+        int first = FIRST_PAGE_ENTRIES.getOrDefault(space, base);
+        return first + (page - 1) * base;
+    }
+
+    public static boolean hasMultiplePages(EmiScreenManager.ScreenSpace space) {
+        if (space == null) {
+            return false;
+        }
+        int base = space.pageSize;
+        int size = space.getStacks().size();
+        if (space.getType() != SidebarType.FAVORITES || base <= 0) {
+            return size > base;
+        }
+        int first = FIRST_PAGE_ENTRIES.getOrDefault(space, base);
+        return size > first;
     }
 
     public static boolean renderFavorites(EmiScreenManager.ScreenSpace space, EmiDrawContext context, int mouseX,
@@ -97,16 +150,19 @@ public final class PinnedRecipeRenderer {
         context.resetColor();
 
         int start = Math.max(0, startIndex);
+        boolean firstPage = start == 0;
         int processed = 0;
 
-        for (int i = start; i < stacks.size() && y < bottom; i++) {
-            processed++;
+        int i = start;
+        for (; i < stacks.size() && y < bottom; i++) {
             EmiIngredient ingredient = stacks.get(i);
             if (FavoriteOrganizer.isSameRecipeFavorite(ingredient, EmiScreenManager.draggedStack)) {
+                processed = i - start + 1;
                 continue;
             }
             EmiRecipe recipe = getFavoriteRecipe(ingredient);
-            int index = recipe == null ? -1 : recipeIndex++;
+            // 卡片属于收藏列表开头，后续页一律用图标，保证每页的布局长度一致
+            int index = firstPage && recipe != null ? recipeIndex++ : -1;
             if (index >= 0 && index < maxVisibleRecipes) {
                 if (iconColumn != 0) {
                     y += ENTRY_SIZE;
@@ -118,9 +174,10 @@ public final class PinnedRecipeRenderer {
                 if (y + cardHeight <= bottom) {
                     renderRecipeCard(space, ingredient, recipe, context, x, y, maxWidth, cardHeight, scale, mouseX, mouseY, delta, hits, index);
                     y += cardHeight + RECIPE_GAP;
+                    processed = i - start + 1;
                     continue;
                 }
-                // 卡片放不下就退回图标形式：EMI 按条目数翻页，这里中断会让后面的条目被永久跳过
+                // 卡片放不下就退回图标形式：后面的条目还要继续渲染，否则会被分页永久跳过
             }
 
             if (iconColumn >= Math.max(1, space.tw)) {
@@ -142,35 +199,25 @@ public final class PinnedRecipeRenderer {
                 hits.add(new IngredientHit(space, bounds, ingredient, null));
             }
             iconColumn++;
+            processed = i - start + 1;
         }
 
-        if (startIndex == 0) {
-            FIRST_PAGE_ENTRIES.put(space, processed);
-            applyPageSize(space);
+        if (firstPage) {
+            int entries = processed;
+            if (i >= stacks.size()) {
+                // 列表不足以填满第一页：按剩余空间补足第一页的“理论容量”。否则每收藏一个
+                // 条目，第一页容量都会跟着 +1，分页会在“出现”和“消失”之间来回闪。
+                int columns = Math.max(1, space.tw);
+                int rows = (bottom - y) / ENTRY_SIZE;
+                if (rows > 0) {
+                    entries += Math.max(0, columns - iconColumn) + (rows - 1) * columns;
+                }
+            }
+            FIRST_PAGE_ENTRIES.put(space, Math.max(1, entries));
         }
 
         HITS.put(space, hits);
         return true;
-    }
-
-    /**
-     * EMI 拿 pageSize 同时当"每页多少个格子"和"每页多少个条目"用。原版两者等价，
-     * 但展开的卡片占好几格却只算一个条目，于是第一页被卡片吃掉的格子既显示不出东西，
-     * 也不会让 EMI 给出第二页（它只在条目数超过 pageSize 时才分页），被挤掉的收藏就既
-     * 看不到也翻不到。这里把 pageSize 折算成第一页真正消费掉的条目数，分页判断和翻页
-     * 步长就都对齐真实容量了。
-     */
-    private static void applyPageSize(EmiScreenManager.ScreenSpace space) {
-        int base = BASE_PAGE_SIZE.getOrDefault(space, space.pageSize);
-        Integer firstPageEntries = FIRST_PAGE_ENTRIES.get(space);
-        int effective = firstPageEntries == null ? base : Math.max(1, Math.min(base, firstPageEntries));
-        setPageSize(space, effective);
-    }
-
-    private static void setPageSize(EmiScreenManager.ScreenSpace space, int size) {
-        if (space.pageSize != size) {
-            ((PageSizeAccess) space).emiRecipePins$setPageSize(size);
-        }
     }
 
     public static EmiStackInteraction getHoveredStack(int mouseX, int mouseY) {
@@ -260,14 +307,19 @@ public final class PinnedRecipeRenderer {
         dragAnimation = new DragAnimation(new DragPreview(sourceBounds.x(), sourceBounds.y(), width, height, scale, false));
     }
 
+    /** 鼠标下方是否有 pin 卡片渲染出来的交互区域，用于接管 EMI 原生的 tooltip */
+    public static boolean hasHitAt(int mouseX, int mouseY) {
+        return getHit(mouseX, mouseY) != null;
+    }
+
+    /**
+     * 卡片区域的 tooltip 由这里统一绘制。EMI 对 {@link EmiFavorite} 的 tooltip 会无条件附加
+     * 配方预览，而普通物品只有在按住「显示配方」键（默认 Shift）时才预览，两者表现不一致。
+     * 因此 mixin 会取消 EMI 对卡片区域的原生 tooltip，改由这里按同样的规则重建。
+     */
     public static void renderTooltip(EmiDrawContext context, int mouseX, int mouseY) {
         Hit hit = getHit(mouseX, mouseY);
-        if (!(hit instanceof WidgetHit widgetHit) || widgetHit.widget instanceof SlotWidget) {
-            return;
-        }
-
-        List<ClientTooltipComponent> tooltip = widgetHit.tooltip(mouseX, mouseY);
-        if (tooltip.isEmpty()) {
+        if (hit == null || !EmiScreenManager.draggedStack.isEmpty()) {
             return;
         }
 
@@ -275,11 +327,49 @@ public final class PinnedRecipeRenderer {
         if (screen == null) {
             return;
         }
-        if (hit.space.rtl) {
-            EmiRenderHelper.drawLeftTooltip(screen, context, tooltip, mouseX, mouseY);
-        } else {
-            EmiRenderHelper.drawTooltip(screen, context, tooltip, mouseX, mouseY);
+        if (screen instanceof AbstractContainerScreen<?> container && !container.getMenu().getCarried().isEmpty()) {
+            return;
         }
+
+        List<ClientTooltipComponent> tooltip;
+        try {
+            tooltip = hit.tooltip(mouseX, mouseY);
+        } catch (Throwable ignored) {
+            return;
+        }
+        if (tooltip.isEmpty()) {
+            return;
+        }
+
+        try {
+            if (hit.space.rtl) {
+                EmiRenderHelper.drawLeftTooltip(screen, context, tooltip, mouseX, mouseY);
+            } else {
+                EmiRenderHelper.drawTooltip(screen, context, tooltip, mouseX, mouseY);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 收藏条目的 tooltip。未按住「显示配方」键时只显示物品本身，按住时才对普通收藏补上
+     * 偏好配方、对固定卡片补上它固定的配方，与 EMI 原生物品的悬停预览规则一致。
+     */
+    private static List<ClientTooltipComponent> favoriteTooltip(EmiIngredient ingredient) {
+        if (!(ingredient instanceof EmiFavorite favorite) || favorite instanceof EmiFavorite.Synthetic) {
+            return ingredient.getTooltip();
+        }
+        List<ClientTooltipComponent> tooltip = new ArrayList<>(favorite.getStack().getTooltip());
+        if (EmiConfig.showCraft.isHeld()) {
+            EmiRecipe recipe = favorite.getRecipe();
+            if (recipe == null) {
+                recipe = EmiUtil.getPreferredRecipe(favorite.getStack(), EmiScreenManager.lastPlayerInventory, false);
+            }
+            if (recipe != null) {
+                tooltip.add(new RecipeTooltipComponent(recipe, true));
+            }
+        }
+        return tooltip;
     }
 
     private static boolean hasRecipeFavorites(List<? extends EmiIngredient> stacks) {
@@ -521,7 +611,7 @@ public final class PinnedRecipeRenderer {
 
         @Override
         List<ClientTooltipComponent> tooltip(int mouseX, int mouseY) {
-            return ingredient.getTooltip();
+            return favoriteTooltip(ingredient);
         }
     }
 
@@ -540,6 +630,11 @@ public final class PinnedRecipeRenderer {
         @Override
         EmiStackInteraction interaction() {
             return new EmiScreenManager.SidebarEmiStackInteraction(favorite, space, recipe, true);
+        }
+
+        @Override
+        List<ClientTooltipComponent> tooltip(int mouseX, int mouseY) {
+            return favoriteTooltip(favorite);
         }
 
         @Override
@@ -584,9 +679,9 @@ public final class PinnedRecipeRenderer {
         @Override
         EmiStackInteraction interaction() {
             if (widget instanceof SlotWidget slot) {
-                EmiRecipe context = slot.getRecipe();
-                EmiIngredient ingredient = context == null ? slot.getStack() : new EmiFavorite(slot.getStack(), context);
-                return new EmiScreenManager.SidebarEmiStackInteraction(ingredient, space, context, true);
+                // 槽位的配方上下文只用于交互（收藏 / 查看配方），stack 保持槽位物品本身，
+                // 这样 EMI 的 tooltip 逻辑不会把槽位当成带配方的收藏而无条件预览
+                return new EmiScreenManager.SidebarEmiStackInteraction(slot.getStack(), space, slot.getRecipe(), true);
             }
             EmiIngredient output = recipe.getOutputs().isEmpty() ? EmiStackInteraction.EMPTY.getStack() : recipe.getOutputs().get(0);
             return new EmiScreenManager.SidebarEmiStackInteraction(output, space, recipe, true);
@@ -594,7 +689,11 @@ public final class PinnedRecipeRenderer {
 
         @Override
         List<ClientTooltipComponent> tooltip(int mouseX, int mouseY) {
-            return widget.getTooltip(localX(mouseX), localY(mouseY));
+            List<ClientTooltipComponent> tooltip = new ArrayList<>(widget.getTooltip(localX(mouseX), localY(mouseY)));
+            if (EmiConfig.showCraft.isHeld() && widget instanceof SlotWidget slot && slot.getRecipe() != null) {
+                tooltip.add(new RecipeTooltipComponent(slot.getRecipe(), true));
+            }
+            return tooltip;
         }
 
         int localX(int mouseX) {
