@@ -3,6 +3,7 @@ package dev.kdevy.emirecipepins.pin;
 import com.google.common.collect.Lists;
 import dev.emi.emi.EmiRenderHelper;
 import dev.emi.emi.EmiUtil;
+import dev.emi.emi.api.recipe.EmiPlayerInventory;
 import dev.emi.emi.api.recipe.EmiRecipe;
 import dev.emi.emi.api.stack.EmiIngredient;
 import dev.emi.emi.api.stack.EmiStack;
@@ -46,6 +47,8 @@ public final class PinnedRecipeRenderer {
     /** 上次看到的第一页布局（固定卡片数量 / 是否处于合成模式），用来判断实测容量是否过期 */
     private static final Map<EmiScreenManager.ScreenSpace, Integer> LAST_RECIPE_COUNT = new IdentityHashMap<>();
     private static final Map<EmiScreenManager.ScreenSpace, Boolean> LAST_SYNTHETIC = new IdentityHashMap<>();
+    /** 每张卡片缺失材料的可用性缓存；EMI 库存内容变化时会换成新的 inventory 对象 */
+    private static final Map<EmiRecipe, MissingCache> MISSING_CACHE = new IdentityHashMap<>();
     private static EmiRecipe animatedDragRecipe;
     private static DragAnimation dragAnimation;
 
@@ -451,6 +454,57 @@ public final class PinnedRecipeRenderer {
         }
     }
 
+    /**
+     * 用玩家当前库存给缺失的输入槽画半透明红遮罩。可用性按 inventory 对象缓存：
+     * EMI 只在库存内容变化时才替换 lastPlayerInventory，因此引用没变就不必每帧重新计算。
+     */
+    private static void renderMissing(EmiRecipe recipe, List<Widget> widgets, EmiDrawContext context) {
+        EmiPlayerInventory inventory = EmiScreenManager.lastPlayerInventory;
+        if (inventory == null) {
+            return;
+        }
+        MissingCache cache = MISSING_CACHE.get(recipe);
+        if (cache == null || cache.inventory != inventory) {
+            cache = new MissingCache(inventory, getAvailable(recipe, inventory));
+            MISSING_CACHE.put(recipe, cache);
+        }
+        context.enableDepthTest();
+        for (Widget widget : widgets) {
+            if (!(widget instanceof SlotWidget slot) || slot.getRecipe() != null) {
+                continue;
+            }
+            EmiIngredient stack = slot.getStack();
+            Boolean available = cache.available.get(stack);
+            if (available != null && !available && !stack.isEmpty()) {
+                Bounds bounds = slot.getBounds();
+                context.fill(bounds.x(), bounds.y(), bounds.width(), bounds.height(), 0x44FF0000);
+            }
+        }
+    }
+
+    private static Map<EmiIngredient, Boolean> getAvailable(EmiRecipe recipe, EmiPlayerInventory inventory) {
+        List<Boolean> availability = inventory.getCraftAvailability(recipe);
+        List<EmiIngredient> inputs = recipe.getInputs();
+        if (availability.size() != inputs.size()) {
+            return Map.of();
+        }
+        Map<EmiIngredient, Boolean> availableForCrafting = new IdentityHashMap<>();
+        for (int i = 0; i < availability.size(); i++) {
+            availableForCrafting.put(inputs.get(i), availability.get(i));
+        }
+        return availableForCrafting;
+    }
+
+    private static final class MissingCache {
+        private final EmiPlayerInventory inventory;
+        private final Map<EmiIngredient, Boolean> available;
+
+        private MissingCache(EmiPlayerInventory inventory, Map<EmiIngredient, Boolean> available) {
+            this.inventory = inventory;
+            this.available = available;
+        }
+    }
+
     private static int renderRecipeCardVisual(EmiRecipe recipe, EmiDrawContext context, int x, int y, int cardWidth,
             int cardHeight, float scale, int mouseX, int mouseY, float delta, List<Widget> widgetsOut, List<Hit> hits,
             int recipeIndex) {
@@ -491,6 +545,8 @@ public final class PinnedRecipeRenderer {
             for (Widget widget : widgets) {
                 widget.render(context.raw(), localMouseX, localMouseY, delta);
             }
+            // 与 EMI 的配方预览一致：用玩家当前库存标记缺失的输入材料（半透明红色遮罩）
+            renderMissing(recipe, widgets, context);
             context.pop();
             pushed = false;
             return contentX;
@@ -700,8 +756,15 @@ public final class PinnedRecipeRenderer {
         @Override
         List<ClientTooltipComponent> tooltip(int mouseX, int mouseY) {
             List<ClientTooltipComponent> tooltip = new ArrayList<>(widget.getTooltip(localX(mouseX), localY(mouseY)));
-            if (EmiConfig.showCraft.isHeld() && widget instanceof SlotWidget slot && slot.getRecipe() != null) {
-                tooltip.add(new RecipeTooltipComponent(slot.getRecipe(), true));
+            if (EmiConfig.showCraft.isHeld() && widget instanceof SlotWidget slot && !slot.getStack().isEmpty()) {
+                // 输出槽带配方上下文；输入材料槽没有，按 EMI 普通物品的规则取偏好配方
+                EmiRecipe preview = slot.getRecipe();
+                if (preview == null) {
+                    preview = EmiUtil.getPreferredRecipe(slot.getStack(), EmiScreenManager.lastPlayerInventory, false);
+                }
+                if (preview != null) {
+                    tooltip.add(new RecipeTooltipComponent(preview, true));
+                }
             }
             return tooltip;
         }
