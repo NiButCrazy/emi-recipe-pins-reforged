@@ -6,12 +6,14 @@ import dev.emi.emi.runtime.EmiFavorites;
 import dev.emi.emi.screen.EmiScreenManager;
 import dev.emi.emi.screen.RecipeScreen;
 import dev.kdevy.emirecipepins.EmiRecipePins;
+import dev.kdevy.emirecipepins.pin.PinnedRecipeRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.RenderTooltipEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -36,6 +38,18 @@ public final class EmiRecipePinsClientEvents {
     public static void onScreenMousePressed(ScreenEvent.MouseButtonPressed.Post event) {
         if (EmiRecipePinsKeybinds.ADD_FAVORITE.matchesMouse(event.getButton())) {
             addPlainFavorite(event.getScreen());
+        }
+    }
+
+    /**
+     * 卡片只是画在屏幕上层，下层原版 GUI（药水效果、物品槽位等）的 hover 判断仍然成立，
+     * 会把它们的 tooltip 一起画出来。原版和大多数模组的 tooltip 都走这个事件，而 EMI 的
+     * tooltip 是直接绘制、不经过这里，所以在卡片区域取消事件即可让下层不再“穿透”。
+     */
+    @SubscribeEvent
+    public static void onRenderTooltip(RenderTooltipEvent.Pre event) {
+        if (!PinnedRecipeRenderer.isRenderingOwnTooltip() && PinnedRecipeRenderer.hasHitAt(event.getX(), event.getY())) {
+            event.setCanceled(true);
         }
     }
 

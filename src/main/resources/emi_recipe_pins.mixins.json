@@ -4,11 +4,13 @@
   "package": "dev.kdevy.emirecipepins.mixin",
   "compatibilityLevel": "JAVA_17",
   "refmap": "emi_recipe_pins.refmap.json",
+  "plugin": "dev.kdevy.emirecipepins.EmiRecipePinsMixinPlugin",
   "client": [
     "EmiFavoritesMixin",
     "EmiScreenManagerMixin",
     "ScreenSpaceMixin",
-    "SidebarPanelMixin"
+    "SidebarPanelMixin",
+    "StylishEffectsHoverMixin"
   ],
   "injectors": {
     "defaultRequire": 1

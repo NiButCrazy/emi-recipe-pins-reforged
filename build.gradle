@@ -42,6 +42,19 @@ mixin {
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
+// 仅编译期使用的假目标类（StylishEffects），不参与打包
+sourceSets {
+    stubs {
+        java.srcDir 'src/stubs/java'
+        compileClasspath += sourceSets.main.compileClasspath
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn tasks.named('compileStubsJava')
+    classpath += sourceSets.stubs.output
+}
+
 repositories {
     maven { url = "https://maven.terraformersmc.com/releases" } // EMI is here
     maven { url = "https://maven.minecraftforge.net/" }

@@ -312,6 +312,13 @@ public final class PinnedRecipeRenderer {
         return getHit(mouseX, mouseY) != null;
     }
 
+    /** 卡片自己的 tooltip 正在绘制，此时不能再取消 RenderTooltipEvent，否则会把自己也拦掉 */
+    private static boolean renderingOwnTooltip;
+
+    public static boolean isRenderingOwnTooltip() {
+        return renderingOwnTooltip;
+    }
+
     /**
      * 卡片区域的 tooltip 由这里统一绘制。EMI 对 {@link EmiFavorite} 的 tooltip 会无条件附加
      * 配方预览，而普通物品只有在按住「显示配方」键（默认 Shift）时才预览，两者表现不一致。
@@ -341,6 +348,7 @@ public final class PinnedRecipeRenderer {
             return;
         }
 
+        renderingOwnTooltip = true;
         try {
             if (hit.space.rtl) {
                 EmiRenderHelper.drawLeftTooltip(screen, context, tooltip, mouseX, mouseY);
@@ -348,6 +356,8 @@ public final class PinnedRecipeRenderer {
                 EmiRenderHelper.drawTooltip(screen, context, tooltip, mouseX, mouseY);
             }
         } catch (Throwable ignored) {
+        } finally {
+            renderingOwnTooltip = false;
         }
     }
 
