@@ -6,6 +6,7 @@ import dev.emi.emi.runtime.EmiFavorites;
 import dev.emi.emi.screen.EmiScreenManager;
 import dev.emi.emi.screen.RecipeScreen;
 import dev.kdevy.emirecipepins.EmiRecipePins;
+import dev.kdevy.emirecipepins.RecipePinsConfig;
 import dev.kdevy.emirecipepins.pin.PinnedRecipeRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.EditBox;
@@ -48,7 +49,9 @@ public final class EmiRecipePinsClientEvents {
      */
     @SubscribeEvent
     public static void onRenderTooltip(RenderTooltipEvent.Pre event) {
-        if (!PinnedRecipeRenderer.isRenderingOwnTooltip() && PinnedRecipeRenderer.hasHitAt(event.getX(), event.getY())) {
+        if (RecipePinsConfig.shouldBlockMousePassthrough()
+                && !PinnedRecipeRenderer.isRenderingOwnTooltip()
+                && PinnedRecipeRenderer.hasHitAt(event.getX(), event.getY())) {
             event.setCanceled(true);
         }
     }

@@ -21,8 +21,8 @@
 - 取消固定后不再残留已经不存在的分页
 - 收藏 / 取消收藏时不会闪分页
 - 卡片放不下时退回紧凑图标，不再中断整页渲染
-- **卡片不再让下层界面穿透** —— 鼠标在卡片上时，下方被遮住的原版槽位、药水效果等不会再显示 tooltip 或响应悬停
-- **兼容 StylishEffects** —— 卡片遮住 StylishEffects 的效果图标时，不会再触发它的悬停、tooltip 和点击（可选，未安装时不会加载相关补丁）
+- **可选的防穿透** —— 开启 `blockMousePassthrough` 后，鼠标在卡片上时，下方被遮住的原版槽位、药水效果等不会再显示 tooltip；默认关闭，底层界面照常响应
+- **兼容 StylishEffects** —— 卡片遮住 StylishEffects 的效果图标时，不会再触发它的悬停、tooltip 和点击（始终启用；未安装该模组时不会加载相关补丁）
 - **合成模式不再被影响** —— 合成模式（Crafting mode）激活时固定卡片自动折叠成图标，EMI 的合成步骤与材料统计保持原生显示，不再被卡片挤出收藏栏
 
 ## 功能
@@ -34,12 +34,13 @@
 - 使用 EMI 的收藏键固定配方（与 EMI 原版一致）
 - 在配方界面按模组按键（默认 `P`）只收藏物品本身，不生成固定卡片
 - 按住 EMI 的「显示配方」键（默认 `Shift`）悬停卡片或材料槽时显示配方预览
-- 卡片上限在 `minecraft/config/emi_recipe_pins.properties` 中配置（默认 `3`）
+- 卡片上限在 `minecraft/config/emi_recipe_pins.properties` 中配置（`maxVisibleRecipes`，默认 `3`）
+- 防鼠标穿透在同一个配置文件中开关（`blockMousePassthrough`，默认 `false`）
 - 支持任意 EMI 配方，包括其它模组提供的
 
 ## 安装
 
-需要 Forge 1.20.1 与 EMI 1.1+。把 `emi_recipe_pins_reforged-2.0.0-1.20.1.jar` 放进 `mods` 目录即可。
+需要 Forge 1.20.1 与 EMI 1.1+。把 `emi_recipe_pins_reforged-2.0.1-1.20.1.jar` 放进 `mods` 目录即可。
 
 > ⚠️ mod id 仍然是 `emi_recipe_pins`。从旧版本升级时请**先删除旧 jar**，同 id 的两个 jar 同时存在会导致加载失败。
 
@@ -56,7 +57,7 @@
 .\gradlew.bat --no-daemon build
 ```
 
-产物为 `build/libs/emi_recipe_pins_reforged-2.0.0-1.20.1.jar`。
+产物为 `build/libs/emi_recipe_pins_reforged-2.0.1-1.20.1.jar`。
 
 ## 协议
 
