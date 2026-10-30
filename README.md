@@ -54,7 +54,7 @@
 
 ## 安装
 
-需要 Forge 1.20.1 与 EMI 1.1+。把 `emi_recipe_pins_reforged-2.1.0-1.20.1.jar` 放进 `mods` 目录即可。
+需要 Forge 1.20.1 与 EMI 1.1+。把 `emi_recipe_pins_reforged-2.1.1-1.20.1.jar` 放进 `mods` 目录即可。
 
 > ⚠️ mod id 仍然是 `emi_recipe_pins`。从旧版本升级时请**先删除旧 jar**，同 id 的两个 jar 同时存在会导致加载失败。
 
@@ -71,7 +71,7 @@
 .\gradlew.bat --no-daemon build
 ```
 
-产物为 `build/libs/emi_recipe_pins_reforged-2.1.0-1.20.1.jar`。
+产物为 `build/libs/emi_recipe_pins_reforged-2.1.1-1.20.1.jar`。
 
 ## 协议
 

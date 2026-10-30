@@ -12,23 +12,21 @@ import dev.emi.emi.config.EmiConfig;
 import dev.emi.emi.runtime.EmiFavorite;
 import dev.emi.emi.screen.EmiScreenManager;
 import dev.emi.emi.screen.RecipeScreen;
+import dev.emi.emi.screen.RecipeTab;
 import dev.emi.emi.screen.WidgetGroup;
 import dev.kdevy.emirecipepins.RecipePinsConfig;
 import dev.kdevy.emirecipepins.pin.PinnedRecipeRenderer;
 import dev.kdevy.emirecipepins.pin.RecipeCardFavorite;
 import net.minecraft.client.gui.screens.Screen;
-import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
-import java.util.Map;
 
 @Mixin(value = RecipeScreen.class, remap = false)
 public abstract class RecipeScreenMixin {
@@ -36,16 +34,25 @@ public abstract class RecipeScreenMixin {
     private List<WidgetGroup> currentPage;
 
     @Shadow
-    int y;
+    private List<RecipeTab> tabs;
 
     @Shadow
-    private Map<EmiRecipeCategory, List<EmiRecipe>> recipes;
+    private int tab;
+
+    @Shadow
+    int backgroundHeight;
+
+    @Shadow
+    int y;
 
     @Unique
     private EmiRecipe emiRecipePins$pressedRecipe;
 
     @Unique
     private Bounds emiRecipePins$pressedRecipeBounds;
+
+    @Unique
+    private boolean emiRecipePins$updatingHeight;
 
     @Inject(method = "mouseClicked", at = @At("TAIL"), remap = true)
     private void emiRecipePins$captureRecipeDrag(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
@@ -106,42 +113,45 @@ public abstract class RecipeScreenMixin {
     private record RecipePress(EmiRecipe recipe, Bounds bounds) {
     }
 
-    /** 只有配置里列出的配方分类才利用 verticalMargin 扩容 */
-    @Redirect(method = "init",
-            at = @At(value = "INVOKE", target = "Ljava/lang/Math;min(II)I", ordinal = 0),
-            remap = true)
-    private int emiRecipePins$expandForCategory(int maximumHeight, int availableHeight) {
-        if (!emiRecipePins$matchesConfiguredCategory()) {
-            return Math.min(maximumHeight, availableHeight);
-        }
-        return Math.min(maximumHeight, ((Screen) (Object) this).height - 52);
-    }
-
-    /** 扩容时用原来的高度重算顶部位置，避免界面整体上移 */
-    @Inject(method = "init",
-            at = @At(value = "FIELD", target = "Ldev/emi/emi/screen/RecipeScreen;y:I",
-                    opcode = Opcodes.PUTFIELD, shift = At.Shift.AFTER),
-            remap = true)
-    private void emiRecipePins$keepTopStable(CallbackInfo ci) {
-        if (!emiRecipePins$matchesConfiguredCategory()) {
+    /**
+     * 切换分类时按当前选中的 tab 调整背景高度：只有配置里列出的分类才利用
+     * verticalMargin 扩容，其它分类恢复原版高度。顶部位置始终按原版高度计算，
+     * 所以高度变化只会向下扩展/收缩。
+     */
+    @Inject(method = "setPage", at = @At("TAIL"), remap = false)
+    private void emiRecipePins$updateHeightForTab(int tabPage, int tab, int page, CallbackInfo ci) {
+        if (emiRecipePins$updatingHeight) {
             return;
         }
         int screenHeight = ((Screen) (Object) this).height;
         int base = Math.min(EmiConfig.maximumRecipeScreenHeight,
                 screenHeight - 52 - EmiConfig.verticalMargin);
-        this.y = (screenHeight - base) / 2 + 1;
+        int target = emiRecipePins$shouldExpand()
+                ? Math.min(EmiConfig.maximumRecipeScreenHeight, screenHeight - 52)
+                : base;
+        if (target == backgroundHeight) {
+            return;
+        }
+
+        emiRecipePins$updatingHeight = true;
+        try {
+            backgroundHeight = target;
+            y = (screenHeight - base) / 2 + 1;
+            // 只重算当前 tab 的分页；其它 tab 在切换过去时会按各自的高度重新计算
+            tabs.get(this.tab).bakePages(target);
+            ((RecipeScreen) (Object) this).setPage(tabPage, tab, page);
+        } finally {
+            emiRecipePins$updatingHeight = false;
+        }
     }
 
-    private boolean emiRecipePins$matchesConfiguredCategory() {
-        if (recipes == null) {
+    @Unique
+    private boolean emiRecipePins$shouldExpand() {
+        if (tab < 0 || tab >= tabs.size()) {
             return false;
         }
-        for (EmiRecipeCategory category : recipes.keySet()) {
-            if (category != null && category.id != null
-                    && RecipePinsConfig.hasRecipeScreenHeightCategory(category.id.toString())) {
-                return true;
-            }
-        }
-        return false;
+        EmiRecipeCategory category = tabs.get(tab).category;
+        return category != null && category.id != null
+                && RecipePinsConfig.hasRecipeScreenHeightCategory(category.id.toString());
     }
 }
