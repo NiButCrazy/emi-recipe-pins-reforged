@@ -9,6 +9,9 @@ import dev.emi.emi.screen.widget.config.GroupNameWidget;
 import dev.emi.emi.screen.widget.config.IntWidget;
 import dev.emi.emi.screen.widget.config.ListWidget;
 import dev.kdevy.emirecipepins.RecipePinsConfig;
+import dev.kdevy.emirecipepins.client.RecipeScreenHeightInfoWidget;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
+import net.minecraft.network.chat.Component;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -25,7 +28,7 @@ public abstract class ConfigScreenMixin {
     @Shadow
     private ConfigSearch search;
 
-    @Inject(method = "init", at = @At("TAIL"), remap = false)
+    @Inject(method = "init", at = @At("TAIL"), remap = true)
     private void emiRecipePins$addEmiConfigEntry(CallbackInfo ci) {
         ConfigScreen screen = (ConfigScreen) (Object) this;
         GroupNameWidget group = new GroupNameWidget("recipe-pins", EmiPort.translatable("config.emi.group.recipe_pins"));
@@ -48,5 +51,13 @@ public abstract class ConfigScreenMixin {
         entry.parentGroups.add(group);
         list.addEntry(group);
         list.addEntry(entry);
+
+        Component infoName = EmiPort.translatable("config.emi.ui.recipe_screen_height_categories");
+        List<ClientTooltipComponent> infoTooltip = List.of(
+                EmiTooltipComponents.of(
+                        EmiPort.translatable("config.emi.tooltip.ui.recipe_screen_height_categories")),
+                EmiTooltipComponents.of(
+                        EmiPort.literal(RecipePinsConfig.getRecipeScreenHeightCategories())));
+        list.addEntry(new RecipeScreenHeightInfoWidget(infoName, infoTooltip, () -> search.getSearch()));
     }
 }

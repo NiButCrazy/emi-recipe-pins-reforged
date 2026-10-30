@@ -42,11 +42,15 @@ public final class PinnedRecipeRenderer {
     /**
      * 收藏栏第一页实际渲染了多少个条目。展开的卡片会占掉好几行，所以第一页能消费的条目
      * 通常少于 EMI 按格子数算出的 pageSize；后续页没有卡片，仍然是 pageSize 个图标。
+     * <p>
+     * key 用收藏栏的 stacks 列表而不是 ScreenSpace 对象：药水效果等 GUI 元素会频繁改变
+     * EMI 的排除区域，导致 ScreenSpace 被重建；如果按对象身份缓存，每次重建都会丢掉实测值，
+     * 分页就会跟着药水图标一起闪。stacks 列表在收藏内容不变时是同一个对象。
      */
-    private static final Map<EmiScreenManager.ScreenSpace, Integer> FIRST_PAGE_ENTRIES = new IdentityHashMap<>();
+    private static final Map<Object, Integer> FIRST_PAGE_ENTRIES = new IdentityHashMap<>();
     /** 上次看到的第一页布局（固定卡片数量 / 是否处于合成模式），用来判断实测容量是否过期 */
-    private static final Map<EmiScreenManager.ScreenSpace, Integer> LAST_RECIPE_COUNT = new IdentityHashMap<>();
-    private static final Map<EmiScreenManager.ScreenSpace, Boolean> LAST_SYNTHETIC = new IdentityHashMap<>();
+    private static final Map<Object, Integer> LAST_RECIPE_COUNT = new IdentityHashMap<>();
+    private static final Map<Object, Boolean> LAST_SYNTHETIC = new IdentityHashMap<>();
     /** 每张卡片缺失材料的可用性缓存；EMI 库存内容变化时会换成新的 inventory 对象 */
     private static final Map<EmiRecipe, MissingCache> MISSING_CACHE = new IdentityHashMap<>();
     private static EmiRecipe animatedDragRecipe;
@@ -72,12 +76,13 @@ public final class PinnedRecipeRenderer {
         if (space == null || space.getType() != SidebarType.FAVORITES) {
             return;
         }
+        List<? extends EmiIngredient> stacks = space.getStacks();
         int recipeCount = FavoriteOrganizer.getRecipeCount();
         boolean synthetic = !EmiFavorites.syntheticFavorites.isEmpty();
-        Integer seenRecipes = LAST_RECIPE_COUNT.put(space, recipeCount);
-        Boolean seenSynthetic = LAST_SYNTHETIC.put(space, synthetic);
+        Integer seenRecipes = LAST_RECIPE_COUNT.put(stacks, recipeCount);
+        Boolean seenSynthetic = LAST_SYNTHETIC.put(stacks, synthetic);
         if (seenRecipes != null && (seenRecipes != recipeCount || seenSynthetic != synthetic)) {
-            FIRST_PAGE_ENTRIES.remove(space);
+            FIRST_PAGE_ENTRIES.remove(stacks);
         }
     }
 
@@ -94,8 +99,9 @@ public final class PinnedRecipeRenderer {
         if (base <= 0) {
             return fallback;
         }
-        int size = space.getStacks().size();
-        int first = FIRST_PAGE_ENTRIES.getOrDefault(space, base);
+        List<? extends EmiIngredient> stacks = space.getStacks();
+        int size = stacks.size();
+        int first = FIRST_PAGE_ENTRIES.getOrDefault(stacks, base);
         if (size <= first) {
             return 1;
         }
@@ -115,7 +121,7 @@ public final class PinnedRecipeRenderer {
         if (page <= 0) {
             return 0;
         }
-        int first = FIRST_PAGE_ENTRIES.getOrDefault(space, base);
+        int first = FIRST_PAGE_ENTRIES.getOrDefault(space.getStacks(), base);
         return first + (page - 1) * base;
     }
 
@@ -124,11 +130,12 @@ public final class PinnedRecipeRenderer {
             return false;
         }
         int base = space.pageSize;
-        int size = space.getStacks().size();
+        List<? extends EmiIngredient> stacks = space.getStacks();
+        int size = stacks.size();
         if (space.getType() != SidebarType.FAVORITES || base <= 0) {
             return size > base;
         }
-        int first = FIRST_PAGE_ENTRIES.getOrDefault(space, base);
+        int first = FIRST_PAGE_ENTRIES.getOrDefault(stacks, base);
         return size > first;
     }
 
@@ -216,7 +223,7 @@ public final class PinnedRecipeRenderer {
                     entries += Math.max(0, columns - iconColumn) + (rows - 1) * columns;
                 }
             }
-            FIRST_PAGE_ENTRIES.put(space, Math.max(1, entries));
+            FIRST_PAGE_ENTRIES.put(space.getStacks(), Math.max(1, entries));
         }
 
         HITS.put(space, hits);

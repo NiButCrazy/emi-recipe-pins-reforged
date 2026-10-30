@@ -13,7 +13,10 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.RegisterClientCommandsEvent;
 import net.minecraftforge.client.event.RenderTooltipEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -22,6 +25,31 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(modid = EmiRecipePins.MOD_ID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class EmiRecipePinsClientEvents {
     private EmiRecipePinsClientEvents() {
+    }
+
+    @SubscribeEvent
+    public static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
+        event.getDispatcher().register(
+                Commands.literal("emi_recipe_pins")
+                        .then(Commands.literal("reload")
+                                .executes(context -> {
+                                    RecipePinsConfig.load();
+                                    context.getSource().sendSuccess(
+                                            () -> Component.literal(
+                                                    "已重新读取 EMI Recipe Pins 配置，重新打开配方界面后生效"),
+                                            false);
+                                    return 1;
+                                }))
+                        .then(Commands.literal("config")
+                                .executes(context -> {
+                                    boolean opened = RecipePinsConfig.openFile();
+                                    context.getSource().sendSuccess(
+                                            () -> Component.literal(opened
+                                                    ? "已用系统默认程序打开配置文件"
+                                                    : "无法自动打开，请手动打开：" + RecipePinsConfig.getFilePath()),
+                                            false);
+                                    return 1;
+                                })));
     }
 
     /**

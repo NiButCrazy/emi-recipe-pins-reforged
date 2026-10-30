@@ -17,9 +17,12 @@
 
 - **卡片直接标出缺失材料** —— 固定卡片会按玩家当前库存，在缺少的输入槽上叠加半透明红色遮罩，不需要悬停或按任何键
 - **新增独立的普通收藏键** —— EMI 原有收藏键保持原样（配方界面收藏带配方的卡片）；想只收藏物品、不生成卡片时，用模组新增的按键（默认 `P`，可在控制设置中修改）
+- **配方界面高度按分类扩容** —— 在配置里列出分类 id 后，这些分类的配方界面会把上下留空（`verticalMargin`）用于自身高度，顶部位置不变、只向下扩展；其它分类完全保持原版
 - **修复收藏栏分页** —— 展开的卡片占好几格却只算一个条目，原版会出现翻页跳条目、收藏接近满页时翻不出第二页的问题；现在第一页按实际渲染条目数切分，后续页按 EMI 原始容量切分，所有收藏都能翻到
 - 取消固定后不再残留已经不存在的分页
 - 收藏 / 取消收藏时不会闪分页
+- 药水效果等元素频繁刷新时，收藏栏分页也不再跟着闪烁
+- **修复反序列化异常** —— 某些模组（如 AttributesLib）只保存了 `{"id": "..."}` 的栈，EMI 读取时会抛 NPE；现在会按物品兜底解析，不再刷错误日志
 - 卡片放不下时退回紧凑图标，不再中断整页渲染
 - **可选的防穿透** —— 开启 `blockMousePassthrough` 后，鼠标在卡片上时，下方被遮住的原版槽位、药水效果等不会再显示 tooltip；默认关闭，底层界面照常响应
 - **兼容 StylishEffects** —— 卡片遮住 StylishEffects 的效果图标时，不会再触发它的悬停、tooltip 和点击（始终启用；未安装该模组时不会加载相关补丁）
@@ -31,16 +34,27 @@
 - 收藏栏中前 N 个固定配方渲染为整宽配方卡片，超出上限的以紧凑图标显示
 - 卡片内实时标注缺失材料（半透明红色遮罩）
 - 可在收藏栏内拖动卡片调整顺序
+- 可从 EMI 配方界面把配方拖到收藏栏固定
 - 使用 EMI 的收藏键固定配方（与 EMI 原版一致）
 - 在配方界面按模组按键（默认 `P`）只收藏物品本身，不生成固定卡片
 - 按住 EMI 的「显示配方」键（默认 `Shift`）悬停卡片或材料槽时显示配方预览
-- 卡片上限在 `minecraft/config/emi_recipe_pins.properties` 中配置（`maxVisibleRecipes`，默认 `3`）
-- 防鼠标穿透在同一个配置文件中开关（`blockMousePassthrough`，默认 `false`）
 - 支持任意 EMI 配方，包括其它模组提供的
+
+## 配置
+
+`minecraft/config/emi_recipe_pins.properties`：
+
+| 键 | 默认值 | 说明 |
+| --- | --- | --- |
+| `maxVisibleRecipes` | `3` | 同时展开为完整卡片的固定配方数量 |
+| `blockMousePassthrough` | `false` | 是否阻止鼠标悬停穿透到卡片下方 |
+| `recipeScreenHeightCategories` | 空 | 允许利用上下间距扩容的配方分类 id，逗号分隔，例如 `malum:spirit_infusion` |
+
+修改后可在游戏内执行 `/emi_recipe_pins reload` 重新读取；`/emi_recipe_pins config` 会用系统默认程序打开配置文件。
 
 ## 安装
 
-需要 Forge 1.20.1 与 EMI 1.1+。把 `emi_recipe_pins_reforged-2.0.1-1.20.1.jar` 放进 `mods` 目录即可。
+需要 Forge 1.20.1 与 EMI 1.1+。把 `emi_recipe_pins_reforged-2.1.0-1.20.1.jar` 放进 `mods` 目录即可。
 
 > ⚠️ mod id 仍然是 `emi_recipe_pins`。从旧版本升级时请**先删除旧 jar**，同 id 的两个 jar 同时存在会导致加载失败。
 
@@ -57,7 +71,7 @@
 .\gradlew.bat --no-daemon build
 ```
 
-产物为 `build/libs/emi_recipe_pins_reforged-2.0.1-1.20.1.jar`。
+产物为 `build/libs/emi_recipe_pins_reforged-2.1.0-1.20.1.jar`。
 
 ## 协议
 

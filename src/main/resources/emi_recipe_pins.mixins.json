@@ -6,8 +6,11 @@
   "refmap": "emi_recipe_pins.refmap.json",
   "plugin": "dev.kdevy.emirecipepins.EmiRecipePinsMixinPlugin",
   "client": [
+    "ConfigScreenMixin",
     "EmiFavoritesMixin",
+    "EmiIngredientSerializersMixin",
     "EmiScreenManagerMixin",
+    "RecipeScreenMixin",
     "ScreenSpaceMixin",
     "SidebarPanelMixin",
     "StylishEffectsHoverMixin"
