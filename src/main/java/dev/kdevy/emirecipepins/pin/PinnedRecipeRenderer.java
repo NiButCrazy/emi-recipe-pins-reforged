@@ -3,8 +3,11 @@ package dev.kdevy.emirecipepins.pin;
 import com.google.common.collect.Lists;
 import dev.emi.emi.EmiRenderHelper;
 import dev.emi.emi.EmiUtil;
+import dev.emi.emi.api.EmiApi;
 import dev.emi.emi.api.recipe.EmiPlayerInventory;
 import dev.emi.emi.api.recipe.EmiRecipe;
+import dev.emi.emi.api.recipe.handler.EmiCraftContext;
+import dev.emi.emi.api.recipe.handler.EmiRecipeHandler;
 import dev.emi.emi.api.stack.EmiIngredient;
 import dev.emi.emi.api.stack.EmiStack;
 import dev.emi.emi.api.stack.EmiStackInteraction;
@@ -16,6 +19,7 @@ import dev.emi.emi.api.widget.Widget;
 import dev.emi.emi.api.widget.WidgetHolder;
 import dev.emi.emi.config.EmiConfig;
 import dev.emi.emi.config.SidebarType;
+import dev.emi.emi.registry.EmiRecipeFiller;
 import dev.emi.emi.runtime.EmiDrawContext;
 import dev.emi.emi.runtime.EmiFavorite;
 import dev.emi.emi.runtime.EmiFavorites;
@@ -53,6 +57,8 @@ public final class PinnedRecipeRenderer {
     private static final Map<Object, Boolean> LAST_SYNTHETIC = new IdentityHashMap<>();
     /** 每张卡片缺失材料的可用性缓存；EMI 库存内容变化时会换成新的 inventory 对象 */
     private static final Map<EmiRecipe, MissingCache> MISSING_CACHE = new IdentityHashMap<>();
+    /** 同一帧内共享配方处理器的库存快照，避免每张卡片都重新构建一次 */
+    private static final Map<Class<?>, EmiPlayerInventory> HANDLER_INVENTORY_CACHE = new IdentityHashMap<>();
     private static EmiRecipe animatedDragRecipe;
     private static DragAnimation dragAnimation;
 
@@ -61,6 +67,7 @@ public final class PinnedRecipeRenderer {
 
     public static void beginFrame() {
         HITS.clear();
+        HANDLER_INVENTORY_CACHE.clear();
         if (!FavoriteOrganizer.isRecipeFavorite(EmiScreenManager.draggedStack)) {
             resetDragAnimation();
         }
@@ -339,6 +346,10 @@ public final class PinnedRecipeRenderer {
         if (hit == null || !EmiScreenManager.draggedStack.isEmpty()) {
             return;
         }
+        // 只有卡片背景的 tooltip 需要按住「显示配方」键；卡片内槽位仍正常显示物品提示
+        if (hit instanceof RecipeHit && !EmiConfig.showCraft.isHeld()) {
+            return;
+        }
 
         Screen screen = Minecraft.getInstance().screen;
         if (screen == null) {
@@ -470,6 +481,17 @@ public final class PinnedRecipeRenderer {
         if (inventory == null) {
             return;
         }
+        // 有配方处理器时交给处理器渲染：AE2 / 精致存储等会按「可合成 / 缺失」使用不同颜色，
+        // 与按住 Shift 时的配方预览保持一致
+        AbstractContainerScreen<?> screen = EmiApi.getHandledScreen();
+        EmiRecipeHandler handler = screen == null ? null : EmiRecipeFiller.getFirstValidHandler(recipe, screen);
+        if (handler != null) {
+            EmiPlayerInventory handlerInventory = HANDLER_INVENTORY_CACHE.computeIfAbsent(
+                    handler.getClass(), type -> handler.getInventory(screen));
+            handler.render(recipe, new EmiCraftContext(screen, handlerInventory,
+                    EmiCraftContext.Type.FILL_BUTTON), widgets, context.raw());
+            return;
+        }
         MissingCache cache = MISSING_CACHE.get(recipe);
         if (cache == null || cache.inventory != inventory) {
             cache = new MissingCache(inventory, getAvailable(recipe, inventory));
@@ -552,7 +574,7 @@ public final class PinnedRecipeRenderer {
             for (Widget widget : widgets) {
                 widget.render(context.raw(), localMouseX, localMouseY, delta);
             }
-            // 与 EMI 的配方预览一致：用玩家当前库存标记缺失的输入材料（半透明红色遮罩）
+            // 与 EMI 的配方预览一致：用玩家当前库存标记缺失的输入材料
             renderMissing(recipe, widgets, context);
             context.pop();
             pushed = false;
