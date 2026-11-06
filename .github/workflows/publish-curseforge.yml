@@ -1,0 +1,36 @@
+name: Publish to CurseForge
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p build/libs
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern "*.jar" --dir build/libs
+          ls -la build/libs
+
+      - name: Publish to CurseForge
+        uses: Kir-Antipov/mc-publish@v3
+        with:
+          curseforge-id: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+
+          files: build/libs/*.jar
+          name: EMI Recipe Pins Reforged ${{ github.ref_name }}
+          version: ${{ github.ref_name }}
+          version-type: release
+          changelog: ${{ github.event.release.body }}
+
+          game-versions: "1.20.1"
+          loaders: forge
+          java: "17"
